@@ -1,0 +1,236 @@
+heat_template_version: 2013-05-23
+
+description: |
+  Deploys a VPN concentrator.
+
+parameter_groups:
+- parameters:
+  - image
+  - flavor
+  - keyname
+  - floating-network-id:
+  - left-networks
+  - vpn-group-name
+  - vpn-group-password
+  - neutron-router-UUID
+  - transient_subnet_cidr
+  - dchp-pool-cidr
+
+
+parameters:
+  flavor:
+    type: string
+    label: Flavor
+    description: Flavor of all vms. This may be changed in the future to allow different flavors for the different vms in this stack.
+    default: m1.small
+
+  image:
+    type: string
+    label: Image Name
+    description: Name of the existing image to use for every vm spun up by this stack. The image should have heat-config and heat-config-script baked in.
+
+  keyname:
+    type: string
+    label: Salt-Standalone Keyname.
+    description: The name of the keypair that should be used to ssh into the VPN concentrator.
+
+  floating-network-id:
+    type: string
+    label: External Network UUID
+    description: UUID of the external network. The private network created by this stack will route to this network. Also, any floating ip's needed by this stack will come this network.
+  
+  left-networks: 
+    type: comma_delimited_list
+    label: left-networks
+    description: The tenant networks to the left of the VPN concentrator
+
+  vpn-group-name:
+    type: string
+    label: vpn-group-name
+    description: The group name for the VPN concentrator
+
+  vpn-group-password:
+    type: string
+    label: vpn-group-password:
+    description: The group password for the VPN concentrator
+
+  neutron-router-UUID:
+    type: string
+    label: neutron-router-UUID
+    description: The router of which the 
+
+  transient_subnet_cidr:
+    type: string
+    label: transient_subnet_cidr:
+    description: The
+
+ 
+
+resources:
+
+  # Random string to aid in naming things.
+  stack-string:
+    type: OS::Heat::RandomString
+    properties:
+      length: 6
+      sequence: lettersdigits
+
+  # Private network for the transient network
+  net:
+    type: OS::Neutron::Net
+    properties:
+      name:
+        str_replace:
+          template: vpn-transient-net-$stackstr
+          params:
+            $stackstr:
+              get_attr:
+                - stack-string
+                - value
+
+  # Private subnet for this stack
+  subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id:
+        get_resource: net
+      cidr: 10.10.10.0/24
+      dns_nameservers:
+        - 8.8.8.8
+        - 4.2.2.2
+
+  # Routes the private network to the external network.
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: 
+          get_param: floating-network-id
+
+  # Router interface
+  interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id:
+        get_resource: router
+      subnet_id: 
+        get_resource: subnet
+
+  # One floating ip for the salt-standalone node
+  standalone-ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: 
+        get_param: floating-network-id
+
+  # One port for the VPN concentrator node
+  concentrator-port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: 
+        get_resource: net
+
+  # Software configuration script for the salt-standalone node
+  # Installs salt-minion, sets permission on some personality files
+  # and uses git to clone any provided state/formula repos
+  config-salt-standalone:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: |
+        #!/bin/bash
+        # Install salt minion
+        set -ex
+        logdir=/var/log/heat-deployments
+        prefix=${logdir}/config-salt-standalone
+        mkdir -p $logdir
+        exec &> >(tee -a ${prefix}.log)
+        [ -e ${prefix}.ran ] && exit 0
+        
+        echo "Install Salt Minion"
+        curl -L http://bootstrap.saltstack.org | sh -s -- git v2014.7.1
+        mkdir /srv/salt
+        echo -e 'file_roots:\n  base:\n    - /srv/salt' >> /etc/salt/minion
+        # Finally - Restart salt service
+        service salt-minion restart
+        /sbin/ifconfig -a | /usr/bin/awk '/eth.*Ethernet/ {print $1}' | while read E; do /usr/bin/sudo /sbin/dhclient $E; done
+        touch ${prefix}.ran
+
+  # Software deployment for salt-standalone. Deploys the salt-standalone softrware
+  # configuration.
+  deploy-salt-standalone:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: config-salt-standalone
+      server:
+        get_resource: standalone
+
+  # The salt standalone instance
+  # Should have one floating ip
+  standalone:
+    type: OS::Nova::Server
+    depends_on: interface
+    properties:
+      key_name:
+        get_param: keyname
+      image: 
+        get_param: image
+      flavor:
+        get_param: flavor
+      name:
+        str_replace:
+          template: saltstack-$stackstr-standalone
+          params:
+            $stackstr:
+              get_attr:
+                - stack-string
+                - value
+     
+      # Get access from the standalone-port
+      networks:
+        - port:
+            get_resource: standalone-port
+        - port: 
+            get_resource: other-port
+
+      # Using SoftwareConfigs - This needs to be set to SOFTWARE_CONFIG
+      user_data_format: SOFTWARE_CONFIG
+
+  # Associate the standalone floating ip to the standalone port
+  standalone-floating-ip-ass: 
+    type: OS::Neutron::FloatingIPAssociation
+    properties: 
+      floatingip_id:
+        get_resource: standalone-ip
+      port_id:
+        get_resource: standalone-port
+
+outputs:
+  standalone-ip:
+    description: Saltstack standalone
+    value: 
+      get_attr:
+        - standalone-ip
+        - floating_ip_address
+
+  standalone-ip-list:
+    description: standalone Ips
+    value:
+      get_attr:
+        - standalone-port
+        - fixed_ips
+        - 0
+        - ip_address
+  
+  # Uncomment the stdout's and stderr's if problems are occuring.
+  #standalone-stdout:
+  #  value:
+  #    get_attr:
+  #     - deploy-salt-standalone
+  #     - deploy_stdout
+  #standalone-stderr:
+  #  value:
+  #    get_attr:
+  #      - deploy-salt-standalone
+  #      - deploy_stderr
