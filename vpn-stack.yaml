@@ -11,7 +11,8 @@ parameter_groups:
   - floating-network-id
   - left-networks
   - vpn-group-name
-  - vpn-group-password
+  - vpn-user-password
+  - vpn-user
   - neutron-router-UUID
   - transient-subnet-cidr
   - dhcp-pool-cidr
@@ -40,7 +41,7 @@ parameters:
     description: UUID of the external network. The private network created by this stack will route to this network. Also, any floating ip's needed by this stack will come this network.
   
   left-networks: 
-    type: comma_delimited_list
+    type: string
     label: left-networks
     description: The tenant networks to the left of the VPN concentrator
 
@@ -49,10 +50,15 @@ parameters:
     label: vpn-group-name
     description: The group name for the VPN concentrator
 
-  vpn-group-password:
+  vpn-user-password:
     type: string
-    label: vpn-group-password
+    label: vpn-user-password
     description: The group password for the VPN concentrator
+
+  vpn-user:
+    type: string
+    label: vpn-user
+    description: The user for the VPN concentrator
 
   neutron-router-UUID:
     type: string
@@ -79,6 +85,13 @@ resources:
     type: OS::Heat::RandomString
     properties:
       length: 6
+      sequence: lettersdigits
+
+  # Randomly Generated Private Shared Key for the VPN concentrator
+  private-shared-key:
+    type: OS::Heat::RandomString
+    properties:
+      length: 12
       sequence: lettersdigits
 
   # Private network for the transient network
@@ -169,6 +182,7 @@ resources:
         mkdir -p /srv/pillar
         mkdir -p /srv/orchestration
         mkdir -p /srv/pillar/
+        mkdir -p /srv/pillar/rpc-salt-vpn
         echo -e 'file_roots:\n  base:\n    - /srv/salt' >> /etc/salt/minion
         echo -e 'file_client: local' >> /etc/salt/minion
 
@@ -219,6 +233,41 @@ resources:
               get_attr:
                 - stack-string
                 - value
+
+      personality:
+        #Top file for pillars
+        /srv/pillar/top.sls: |
+          base:
+            '*':
+              - rpc-salt-vpn
+
+        #Pillar for strongswan
+        /srv/pillar/rpc-salt-vpn/init.sls:
+          str_replace:
+            template: |
+              ipsecconf:
+                left_networks: $leftNetworks
+                dhcp_pool_cidr: $dhcpPoolCidr
+                group_name: $groupName
+                private_key: $privateKey
+                user:
+                  name: $userName
+                  password: $password
+            params:
+              $leftNetworks:
+                get_param: left-networks
+              $dhcpPoolCidr:
+                get_param: dhcp-pool-cidr
+              $groupName:
+                get_param: vpn-group-name
+              $privateKey:
+                get_attr:
+                  - private-shared-key
+                  - value
+              $userName: 
+                get_param: vpn-user
+              $password:
+                get_param: vpn-user-password
 
       # Get access from the standalone-port
       networks:
