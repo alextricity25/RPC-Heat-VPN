@@ -8,13 +8,13 @@ parameter_groups:
   - image
   - flavor
   - keyname
-  - floating-network-id:
+  - floating-network-id
   - left-networks
   - vpn-group-name
   - vpn-group-password
   - neutron-router-UUID
-  - transient_subnet_cidr
-  - dchp-pool-cidr
+  - transient-subnet-cidr
+  - dhcp-pool-cidr
 
 
 parameters:
@@ -51,7 +51,7 @@ parameters:
 
   vpn-group-password:
     type: string
-    label: vpn-group-password:
+    label: vpn-group-password
     description: The group password for the VPN concentrator
 
   neutron-router-UUID:
@@ -59,10 +59,16 @@ parameters:
     label: neutron-router-UUID
     description: The router of which the 
 
-  transient_subnet_cidr:
+  transient-subnet-cidr:
     type: string
-    label: transient_subnet_cidr:
+    label: transient_subnet_cidr
     description: The
+
+  dhcp-pool-cidr:
+    type: string
+    label: dhcp-pool-cidr
+    description: The cidr for the DHCP pool of the VPN concentrator
+
 
  
 
@@ -94,25 +100,18 @@ resources:
     properties:
       network_id:
         get_resource: net
-      cidr: 10.10.10.0/24
+      cidr:
+        get_param: transient-subnet-cidr
       dns_nameservers:
         - 8.8.8.8
         - 4.2.2.2
-
-  # Routes the private network to the external network.
-  router:
-    type: OS::Neutron::Router
-    properties:
-      external_gateway_info:
-        network: 
-          get_param: floating-network-id
 
   # Router interface
   interface:
     type: OS::Neutron::RouterInterface
     properties:
       router_id:
-        get_resource: router
+        get_param: neutron-router-UUID
       subnet_id: 
         get_resource: subnet
 
@@ -124,11 +123,26 @@ resources:
         get_param: floating-network-id
 
   # One port for the VPN concentrator node
-  concentrator-port:
+  standalone-port:
     type: OS::Neutron::Port
     properties:
       network_id: 
         get_resource: net
+
+  # Updates the route of the neutron router
+  neutron-update:
+    type: OS::Neutron::ExtraRoute
+    properties:
+      destination: 
+        get_param: dhcp-pool-cidr
+      nexthop: 
+        get_attr:
+          - standalone-port
+          - fixed_ips
+          - 0
+          - ip_address
+      router_id: 
+        get_param: neutron-router-UUID
 
   # Software configuration script for the salt-standalone node
   # Installs salt-minion, sets permission on some personality files
@@ -137,6 +151,8 @@ resources:
     type: OS::Heat::SoftwareConfig
     properties:
       group: script
+      inputs: 
+        - name: state_repos
       config: |
         #!/bin/bash
         # Install salt minion
@@ -149,18 +165,35 @@ resources:
         
         echo "Install Salt Minion"
         curl -L http://bootstrap.saltstack.org | sh -s -- git v2014.7.1
-        mkdir /srv/salt
+        mkdir -p /srv/salt
+        mkdir -p /srv/pillar
+        mkdir -p /srv/orchestration
+        mkdir -p /srv/pillar/
         echo -e 'file_roots:\n  base:\n    - /srv/salt' >> /etc/salt/minion
+        echo -e 'file_client: local' >> /etc/salt/minion
+
+        # Clone state/formula repos in state root directory
+        cd /srv/salt
+        while read -r line
+        do
+            if [ -n "$line" ]; then
+                git clone $line
+            fi
+        done <<< "$state_repos"
+
         # Finally - Restart salt service
         service salt-minion restart
         /sbin/ifconfig -a | /usr/bin/awk '/eth.*Ethernet/ {print $1}' | while read E; do /usr/bin/sudo /sbin/dhclient $E; done
         touch ${prefix}.ran
 
-  # Software deployment for salt-standalone. Deploys the salt-standalone softrware
+  # Software deployment for salt-standalone. Deploys the salt-standalone software
   # configuration.
   deploy-salt-standalone:
     type: OS::Heat::SoftwareDeployment
     properties:
+      input_values:
+        state_repos: |
+          https://github.com/elextro/rpc-salt-vpn
       config:
         get_resource: config-salt-standalone
       server:
@@ -186,13 +219,11 @@ resources:
               get_attr:
                 - stack-string
                 - value
-     
+
       # Get access from the standalone-port
       networks:
         - port:
             get_resource: standalone-port
-        - port: 
-            get_resource: other-port
 
       # Using SoftwareConfigs - This needs to be set to SOFTWARE_CONFIG
       user_data_format: SOFTWARE_CONFIG
@@ -222,7 +253,26 @@ outputs:
         - fixed_ips
         - 0
         - ip_address
-  
+
+  neutron-route-command:
+    description: The route needed on the neutron router so VPN traffic is routed to concentrator. 
+    value:
+      str_replace:
+        template: "neutron router-update $neutron-router --routes list=true type=dict destination=$dhcp-pool,nexthop=$transient_subnet_cidr"
+        params:
+          $neutron-router:
+            get_param: neutron-router-UUID
+          $dhcp-pool:
+            get_param: dhcp-pool-cidr
+          $transient_subnet_cidr:
+            get_param: transient-subnet-cidr
+
+  # neutron-router-attributes:
+  #   description: Attributes of the neutron router
+  #   value:
+  #     get_attr:
+  #       - get_param: neutron-router-UUID
+
   # Uncomment the stdout's and stderr's if problems are occuring.
   #standalone-stdout:
   #  value:
