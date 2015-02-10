@@ -94,6 +94,26 @@ resources:
       length: 12
       sequence: lettersdigits
 
+  secgroup:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name:
+        str_replace:
+          template: vpn-secgroup-$stackstr
+          params:
+            $stackstr:
+              get_attr:
+                - stack-string
+                - value
+      description: VPN traffic allowed
+      rules:
+      - protocol: udp
+        port_range_min: 500
+        port_range_max: 500
+      - protocol: udp
+        port_range_min: 4500
+        port_range_max: 4500
+
   # Private network for the transient network
   net:
     type: OS::Neutron::Net
@@ -141,6 +161,8 @@ resources:
     properties:
       network_id: 
         get_resource: net
+      security_groups:
+        - get_resource: secgroup
 
   # Updates the route of the neutron router
   neutron-update:
@@ -184,7 +206,7 @@ resources:
         mkdir -p /srv/pillar/
         mkdir -p /srv/pillar/rpc-salt-vpn
         echo -e 'file_roots:\n  base:\n    - /srv/salt' >> /etc/salt/minion
-        echo -e 'file_client: local' >> /etc/salt/minion
+        echo -e 'file_client: local' >> /etc/salt/minion 
 
         # Clone state/formula repos in state root directory
         cd /srv/salt
@@ -286,6 +308,31 @@ resources:
       port_id:
         get_resource: standalone-port
 
+  config-deploy:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: |
+        #!/bin/bash
+        set -ex
+        logdir=/var/log/heat-deployments
+        prefix=${logdir}/config-deploy
+        mkdir -p $logdir
+        exec &> >(tee -a ${prefix}.log)
+        [ -e ${prefix}.ran ] && exit 0
+        salt-call state.sls rpc-salt-vpn
+        touch ${prefix}.ran
+
+  deploy:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: config-deploy
+      server:
+        get_resource: standalone
+    depends_on:
+      - deploy-salt-standalone
+
 outputs:
   standalone-ip:
     description: Saltstack standalone
@@ -303,18 +350,9 @@ outputs:
         - 0
         - ip_address
 
-  neutron-route-command:
-    description: The route needed on the neutron router so VPN traffic is routed to concentrator. 
-    value:
-      str_replace:
-        template: "neutron router-update $neutron-router --routes list=true type=dict destination=$dhcp-pool,nexthop=$transient_subnet_cidr"
-        params:
-          $neutron-router:
-            get_param: neutron-router-UUID
-          $dhcp-pool:
-            get_param: dhcp-pool-cidr
-          $transient_subnet_cidr:
-            get_param: transient-subnet-cidr
+  neutron-port-update:
+    description: Run this command, listing each left subnet and your dhcp pool
+    value: "neutron port-update <port-id-of-vpn-concentrator> --allowed-address-pairs list=true type=dict ip_address=<first-left-subnet> ip_address=<second-subnet> .."
 
   # neutron-router-attributes:
   #   description: Attributes of the neutron router
