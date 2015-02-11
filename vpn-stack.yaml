@@ -105,8 +105,12 @@ resources:
               get_attr:
                 - stack-string
                 - value
-      description: VPN traffic allowed
+      description: VPN, ICMP, and SSH traffic allowed
       rules:
+      - protocol: icmp
+      - protocol: tcp
+        port_range_min: 22
+        port_range_max: 22
       - protocol: udp
         port_range_min: 500
         port_range_max: 500
