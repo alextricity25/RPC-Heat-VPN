@@ -52,6 +52,7 @@ parameters:
 
   vpn-user-password:
     type: string
+    hidden: true
     label: vpn-user-password
     description: The user password for the VPN concentrator.
 
@@ -356,7 +357,20 @@ outputs:
 
   neutron-port-update:
     description: Run this command, listing each left subnet and your dhcp pool
-    value: "neutron port-update <port-id-of-vpn-concentrator> --allowed-address-pairs list=true type=dict ip_address=<first-left-subnet> ip_address=<second-subnet> .. ip_address=<dhcp-pool>"
+    value:
+      str_replace:
+        template: "neutron port-update $port_id --allowed-address-pairs list=true type=dict ip_address=$dhcp-pool-cidr ip_address=<first-left-subnet> ip_address=<second-subnet> .. "
+        params:
+          $port_id:
+            get_resource: standalone-port
+          $dhcp-pool-cidr:
+            get_param: dhcp-pool-cidr
+
+  # neutron-port-show:
+  #   value:
+  #     get_attr:
+  #       - standalone-port
+  #       - show
 
   # Uncomment the stdout's and stderr's if problems are occuring.
   #standalone-stdout:
