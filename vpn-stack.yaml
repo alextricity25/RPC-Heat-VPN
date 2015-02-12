@@ -1,7 +1,7 @@
 heat_template_version: 2013-05-23
 
 description: |
-  Deploys a VPN concentrator.
+  Deploys a VPN concentrator. As of Juno, port-updates need to be done manually to allow for multiple left networks.
 
 parameter_groups:
 - parameters:
@@ -22,7 +22,7 @@ parameters:
   flavor:
     type: string
     label: Flavor
-    description: Flavor of all vms. This may be changed in the future to allow different flavors for the different vms in this stack.
+    description: Flavor of the VPN concentrator.
     default: m1.small
 
   image:
@@ -38,42 +38,42 @@ parameters:
   floating-network-id:
     type: string
     label: External Network UUID
-    description: UUID of the external network. The private network created by this stack will route to this network. Also, any floating ip's needed by this stack will come this network.
+    description: UUID of the physical provider external network. The private network created by this stack will route to this network. Also, any floating ip's needed by this stack will come this network.
   
   left-networks: 
     type: string
     label: left-networks
-    description: The tenant networks to the left of the VPN concentrator
+    description: The tenant networks to the left of the VPN concentrator.
 
   vpn-group-name:
     type: string
     label: vpn-group-name
-    description: The group name for the VPN concentrator
+    description: The group name for the VPN concentrator.
 
   vpn-user-password:
     type: string
     label: vpn-user-password
-    description: The group password for the VPN concentrator
+    description: The user password for the VPN concentrator.
 
   vpn-user:
     type: string
     label: vpn-user
-    description: The user for the VPN concentrator
+    description: The user for the VPN concentrator.
 
   neutron-router-UUID:
     type: string
     label: neutron-router-UUID
-    description: The router of which the 
+    description: The router in front of the networks the vpn concentrator will route to. 
 
   transient-subnet-cidr:
     type: string
     label: transient_subnet_cidr
-    description: The
+    description: The network used for VPN traffic being routed to the left networks.
 
   dhcp-pool-cidr:
     type: string
     label: dhcp-pool-cidr
-    description: The cidr for the DHCP pool of the VPN concentrator
+    description: The cidr for the DHCP pool of the VPN concentrator.
 
 
  
@@ -152,7 +152,7 @@ resources:
       subnet_id: 
         get_resource: subnet
 
-  # One floating ip for the salt-standalone node
+  # One floating ip for the salt-standalone (vpn-concentrator) node
   standalone-ip:
     type: OS::Neutron::FloatingIP
     properties:
@@ -356,13 +356,7 @@ outputs:
 
   neutron-port-update:
     description: Run this command, listing each left subnet and your dhcp pool
-    value: "neutron port-update <port-id-of-vpn-concentrator> --allowed-address-pairs list=true type=dict ip_address=<first-left-subnet> ip_address=<second-subnet> .."
-
-  # neutron-router-attributes:
-  #   description: Attributes of the neutron router
-  #   value:
-  #     get_attr:
-  #       - get_param: neutron-router-UUID
+    value: "neutron port-update <port-id-of-vpn-concentrator> --allowed-address-pairs list=true type=dict ip_address=<first-left-subnet> ip_address=<second-subnet> .. ip_address=<dhcp-pool>"
 
   # Uncomment the stdout's and stderr's if problems are occuring.
   #standalone-stdout:
