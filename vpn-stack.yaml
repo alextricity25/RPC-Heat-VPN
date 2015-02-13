@@ -218,7 +218,7 @@ resources:
         while read -r line
         do
             if [ -n "$line" ]; then
-                git clone $line
+                git clone -b feature-split-tunneling $line
             fi
         done <<< "$state_repos"
 
