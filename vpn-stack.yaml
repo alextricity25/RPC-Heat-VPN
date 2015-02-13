@@ -11,8 +11,7 @@ parameter_groups:
   - floating-network-id
   - left-networks
   - vpn-group-name
-  - vpn-user-password
-  - vpn-user
+  - vpn-users
   - neutron-router-UUID
   - transient-subnet-cidr
   - dhcp-pool-cidr
@@ -50,13 +49,8 @@ parameters:
     label: vpn-group-name
     description: The group name for the VPN concentrator.
 
-  vpn-user-password:
-    type: string
-    hidden: true
-    label: vpn-user-password
-    description: The user password for the VPN concentrator.
 
-  vpn-user:
+  vpn-users:
     type: string
     label: vpn-user
     description: The user for the VPN concentrator.
@@ -220,7 +214,7 @@ resources:
         while read -r line
         do
             if [ -n "$line" ]; then
-                git clone $line
+                git clone -b feature-multiple-users $line
             fi
         done <<< "$state_repos"
 
@@ -274,14 +268,17 @@ resources:
         /srv/pillar/rpc-salt-vpn/init.sls:
           str_replace:
             template: |
+              {% set user_list = $list_of_users.split(',') %}
               ipsecconf:
                 left_networks: $leftNetworks
                 dhcp_pool_cidr: $dhcpPoolCidr
                 group_name: $groupName
                 private_key: $privateKey
-                user:
-                  name: $userName
-                  password: $password
+                user_list:
+                  {% for user in user_list %}
+                  name: {{ user }}
+                    password: {{ salt['random.get_str']('10') }}
+                  {% endfor %}
             params:
               $leftNetworks:
                 get_param: left-networks
@@ -293,10 +290,9 @@ resources:
                 get_attr:
                   - private-shared-key
                   - value
-              $userName: 
-                get_param: vpn-user
-              $password:
-                get_param: vpn-user-password
+              $list_of_users: 
+                get_param: vpn-users
+
 
       # Get access from the vpn-concentrator-port
       networks:
