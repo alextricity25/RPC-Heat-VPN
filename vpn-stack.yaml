@@ -327,6 +327,7 @@ resources:
         [ -e ${prefix}.ran ] && exit 0
         salt-call state.sls rpc-salt-vpn
         touch ${prefix}.ran
+        exit 0
 
   deploy:
     type: OS::Heat::SoftwareDeployment
