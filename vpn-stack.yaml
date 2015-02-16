@@ -228,6 +228,8 @@ resources:
   deploy-vpn-concentrator:
     type: OS::Heat::SoftwareDeployment
     properties:
+      actions:
+        - CREATE
       input_values:
         state_repos: |
           https://github.com/elextro/rpc-salt-vpn
@@ -301,6 +303,8 @@ resources:
     type: OS::Nova::Server
     depends_on: transient-net-interface
     properties:
+      flavor_update_policy: RESIZE
+      image_update_policy: REBUILD_PRESERVE_EPHEMERAL
       key_name:
         get_param: keyname
       image: 
