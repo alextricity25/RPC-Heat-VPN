@@ -1,7 +1,7 @@
 heat_template_version: 2013-05-23
 
 description: |
-  Deploys a VPN concentrator. As of Juno, port-updates need to be done manually to allow for multiple left networks.
+  Deploys a VPN concentrator. As of Juno, port-updates need to be done manually to allow for multiple left networks (split tunneling).
 
 parameter_groups:
 - parameters:
@@ -32,7 +32,7 @@ parameters:
 
   keyname:
     type: string
-    label: Salt-Standalone Keyname.
+    label: vpn-concentrator Keyname.
     description: The name of the keypair that should be used to ssh into the VPN concentrator.
 
   floating-network-id:
@@ -88,13 +88,15 @@ resources:
       length: 6
       sequence: lettersdigits
 
-  # Randomly Generated Private Shared Key for the VPN concentrator
+  # Randomly generated Private Shared Key for the VPN concentrator
   private-shared-key:
     type: OS::Heat::RandomString
     properties:
       length: 12
       sequence: lettersdigits
 
+  # Security group for the VPN concentrator port. Allows 
+  # all icmp, all ssh, and VPN traffic
   secgroup:
     type: OS::Neutron::SecurityGroup
     properties:
@@ -119,8 +121,8 @@ resources:
         port_range_min: 4500
         port_range_max: 4500
 
-  # Private network for the transient network
-  net:
+  # Private network for the VPN concentrator transient network
+  transient-net:
     type: OS::Neutron::Net
     properties:
       name:
@@ -133,11 +135,11 @@ resources:
                 - value
 
   # Private subnet for this stack
-  subnet:
+  transient-subnet:
     type: OS::Neutron::Subnet
     properties:
       network_id:
-        get_resource: net
+        get_resource: transient-net
       cidr:
         get_param: transient-subnet-cidr
       dns_nameservers:
@@ -145,27 +147,27 @@ resources:
         - 4.2.2.2
 
   # Router interface
-  interface:
+  transient-net-interface:
     type: OS::Neutron::RouterInterface
     properties:
       router_id:
         get_param: neutron-router-UUID
       subnet_id: 
-        get_resource: subnet
+        get_resource: transient-subnet
 
-  # One floating ip for the salt-standalone (vpn-concentrator) node
-  standalone-ip:
+  # One floating ip for the vpn concentrator node
+  vpn-concentrator-ip:
     type: OS::Neutron::FloatingIP
     properties:
       floating_network_id: 
         get_param: floating-network-id
 
   # One port for the VPN concentrator node
-  standalone-port:
+  vpn-concentrator-port:
     type: OS::Neutron::Port
     properties:
       network_id: 
-        get_resource: net
+        get_resource: transient-net
       security_groups:
         - get_resource: secgroup
 
@@ -177,7 +179,7 @@ resources:
         get_param: dhcp-pool-cidr
       nexthop: 
         get_attr:
-          - standalone-port
+          - vpn-concentrator-port
           - fixed_ips
           - 0
           - ip_address
@@ -187,7 +189,7 @@ resources:
   # Software configuration script for the salt-standalone node
   # Installs salt-minion, sets permission on some personality files
   # and uses git to clone any provided state/formula repos
-  config-salt-standalone:
+  config-vpn-concentrator:
     type: OS::Heat::SoftwareConfig
     properties:
       group: script
@@ -198,7 +200,7 @@ resources:
         # Install salt minion
         set -ex
         logdir=/var/log/heat-deployments
-        prefix=${logdir}/config-salt-standalone
+        prefix=${logdir}/config-vpn-concentrator
         mkdir -p $logdir
         exec &> >(tee -a ${prefix}.log)
         [ -e ${prefix}.ran ] && exit 0
@@ -218,7 +220,7 @@ resources:
         while read -r line
         do
             if [ -n "$line" ]; then
-                git clone -b feature-split-tunneling $line
+                git clone $line
             fi
         done <<< "$state_repos"
 
@@ -227,24 +229,24 @@ resources:
         /sbin/ifconfig -a | /usr/bin/awk '/eth.*Ethernet/ {print $1}' | while read E; do /usr/bin/sudo /sbin/dhclient $E; done
         touch ${prefix}.ran
 
-  # Software deployment for salt-standalone. Deploys the salt-standalone software
+  # Software deployment for vpn-concentrator. Deploys the vpn-concentrator software
   # configuration.
-  deploy-salt-standalone:
+  deploy-vpn-concentrator:
     type: OS::Heat::SoftwareDeployment
     properties:
       input_values:
         state_repos: |
           https://github.com/elextro/rpc-salt-vpn
       config:
-        get_resource: config-salt-standalone
+        get_resource: config-vpn-concentrator
       server:
-        get_resource: standalone
+        get_resource: vpn-concentrator
 
-  # The salt standalone instance
+  # The vpn-concentrator instance
   # Should have one floating ip
-  standalone:
+  vpn-concentrator:
     type: OS::Nova::Server
-    depends_on: interface
+    depends_on: transient-net-interface
     properties:
       key_name:
         get_param: keyname
@@ -254,7 +256,7 @@ resources:
         get_param: flavor
       name:
         str_replace:
-          template: saltstack-$stackstr-standalone
+          template: vpn-concentrator-$stackstr
           params:
             $stackstr:
               get_attr:
@@ -296,24 +298,25 @@ resources:
               $password:
                 get_param: vpn-user-password
 
-      # Get access from the standalone-port
+      # Get access from the vpn-concentrator-port
       networks:
         - port:
-            get_resource: standalone-port
+            get_resource: vpn-concentrator-port
 
       # Using SoftwareConfigs - This needs to be set to SOFTWARE_CONFIG
       user_data_format: SOFTWARE_CONFIG
 
-  # Associate the standalone floating ip to the standalone port
-  standalone-floating-ip-ass: 
+  # Associate the vpn-concentrator floating ip to the vpn-concentrator port
+  vpn-concentrator-floating-ip-ass: 
     type: OS::Neutron::FloatingIPAssociation
     properties: 
       floatingip_id:
-        get_resource: standalone-ip
+        get_resource: vpn-concentrator-ip
       port_id:
-        get_resource: standalone-port
+        get_resource: vpn-concentrator-port
 
-  config-deploy:
+  # Call the salt formula locally to install strongswan
+  config-install-strongswan:
     type: OS::Heat::SoftwareConfig
     properties:
       group: script
@@ -321,7 +324,7 @@ resources:
         #!/bin/bash
         set -ex
         logdir=/var/log/heat-deployments
-        prefix=${logdir}/config-deploy
+        prefix=${logdir}/config-install-strongswan
         mkdir -p $logdir
         exec &> >(tee -a ${prefix}.log)
         [ -e ${prefix}.ran ] && exit 0
@@ -329,29 +332,61 @@ resources:
         touch ${prefix}.ran
         exit 0
 
-  deploy:
+  # The software deployment for the above config
+  deploy-install-strongswan:
     type: OS::Heat::SoftwareDeployment
     properties:
       config:
-        get_resource: config-deploy
+        get_resource: config-install-strongswan
       server:
-        get_resource: standalone
+        get_resource: vpn-concentrator
+      signal_transport: NO_SIGNAL
     depends_on:
-      - deploy-salt-standalone
+      - deploy-vpn-concentrator
+
+  # This resource 
+  installing-strongswan-config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: |
+        #!/bin/bash
+        set -ex
+        logdir=/var/log/heat-deployments
+        prefix=${logdir}/installing-strongswan-config
+        mkdir -p $logdir
+        exec &> >(tee -a ${prefix}.log)
+        while [ ! -f /tmp/install-strongswan.ran ]
+        do
+          echo "Waiting for strongswan to be installed.."
+          sleep 2
+        done
+        echo "Done!"
+        exit 0
+
+  installing-strongswan-deploy:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: installing-strongswan-config
+      server:
+        get_resource: vpn-concentrator
+    depends_on:
+      - deploy-install-strongswan
 
 outputs:
-  standalone-ip:
-    description: Saltstack standalone
+  vpn-concentrator-ip:
+    description: Saltstack vpn-concentrator floating ip
     value: 
       get_attr:
-        - standalone-ip
+        - vpn-concentrator-ip
         - floating_ip_address
 
-  standalone-ip-list:
-    description: standalone Ips
+  vpn-concentrator-ip-list:
+    description: vpn-concentrator ips
     value:
       get_attr:
-        - standalone-port
+        - vpn-concentrator-port
         - fixed_ips
         - 0
         - ip_address
@@ -363,24 +398,18 @@ outputs:
         template: "neutron port-update $port_id --allowed-address-pairs list=true type=dict ip_address=$dhcp-pool-cidr ip_address=<first-left-subnet> ip_address=<second-subnet> .. "
         params:
           $port_id:
-            get_resource: standalone-port
+            get_resource: vpn-concentrator-port
           $dhcp-pool-cidr:
             get_param: dhcp-pool-cidr
 
-  # neutron-port-show:
-  #   value:
-  #     get_attr:
-  #       - standalone-port
-  #       - show
-
   # Uncomment the stdout's and stderr's if problems are occuring.
-  #standalone-stdout:
+  #vpn-concentrator-stdout:
   #  value:
   #    get_attr:
-  #     - deploy-salt-standalone
+  #     - deploy-vpn-concentrator
   #     - deploy_stdout
-  #standalone-stderr:
+  #vpn-concentrator-stderr:
   #  value:
   #    get_attr:
-  #      - deploy-salt-standalone
+  #      - deploy-vpn-concentrator
   #      - deploy_stderr
