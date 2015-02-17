@@ -247,7 +247,7 @@ resources:
         - name: private_key
         - name: list_of_users
       outputs:
-        - name: result
+        - name: users_pwds
       config: |
         #!/bin/bash
         set -ex
@@ -267,7 +267,7 @@ resources:
         do
           PASSWORD=`date +%s | sha256sum | base64 | md5sum | head -c 10`
           echo "    $i: $PASSWORD" >> /srv/pillar/rpc-salt-vpn/init.sls
-          echo "    $i: $PASSWORD" >> $heat_outputs_path.result
+          echo "{$i: $PASSWORD}" >> $heat_outputs_path.users_pwds
           sleep 1
         done
 
@@ -402,14 +402,14 @@ resources:
       - deploy-build-pillar
 
 outputs:
-  vpn-concentrator-ip:
+  vpn-concentrator-floating-ip:
     description: Saltstack vpn-concentrator floating ip
     value: 
       get_attr:
         - vpn-concentrator-ip
         - floating_ip_address
 
-  vpn-concentrator-ip-list:
+  vpn-concentrator-inside-ip:
     description: vpn-concentrator ips
     value:
       get_attr:
@@ -418,7 +418,7 @@ outputs:
         - 0
         - ip_address
 
-  neutron-port-update:
+  neutron-port-update-command:
     description: Run this command, listing each left subnet and your dhcp pool
     value:
       str_replace:
@@ -429,11 +429,12 @@ outputs:
           $dhcp-pool-cidr:
             get_param: dhcp-pool-cidr
 
-  result:
+  users_pwds:
+    description: The users and their corresponding passwords are listed as key-value pairs below
     value:
       get_attr:
         - deploy-build-pillar
-        - result
+        - users_pwds
 
   # Uncomment the stdout's and stderr's if problems are occuring.
   #vpn-concentrator-stdout:
