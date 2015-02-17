@@ -236,6 +236,65 @@ resources:
       server:
         get_resource: vpn-concentrator
 
+  config-build-pillar:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+        - name: left_networks
+        - name: dhcp_pool_cidr
+        - name: group_name
+        - name: private_key
+        - name: list_of_users
+      outputs:
+        - name: result
+      config: |
+        #!/bin/bash
+        set -ex
+        logdir=/var/log/heat-deployments
+        prefix=${logdir}/config-build-pillar
+        mkdir -p $logdir
+        exec &> >(tee -a ${prefix}.log)
+        cat << ENDFILE > /srv/pillar/rpc-salt-vpn/init.sls
+        ipsecconf:
+          left_networks: $left_networks
+          dhcp_pool_cidr: $dhcp_pool_cidr
+          group_name: $group_name
+          private_key: $private_key
+          users:
+        ENDFILE
+        for i in $(echo $list_of_users | tr "," "\n")
+        do
+          PASSWORD=`date +%s | sha256sum | base64 | md5sum | head -c 10`
+          echo "    $i: $PASSWORD" >> /srv/pillar/rpc-salt-vpn/init.sls
+          echo "    $i: $PASSWORD" >> $heat_outputs_path.result
+          sleep 1
+        done
+
+  deploy-build-pillar:
+    type: OS::Heat::SoftwareDeployment
+    depends_on: deploy-vpn-concentrator
+    properties:
+      input_values:
+        left_networks:
+          get_param: left-networks
+        dhcp_pool_cidr:
+          get_param: dhcp-pool-cidr
+        group_name:
+          get_param: vpn-group-name
+        private_key:
+          get_attr: 
+            - private-shared-key
+            - value
+        list_of_users:
+          get_param: vpn-users
+      config:
+        get_resource: config-build-pillar
+      server:
+        get_resource: vpn-concentrator
+
+
+
   # The vpn-concentrator instance
   # Should have one floating ip
   vpn-concentrator:
@@ -263,36 +322,6 @@ resources:
           base:
             '*':
               - rpc-salt-vpn
-
-        #Pillar for strongswan
-        /srv/pillar/rpc-salt-vpn/init.sls:
-          str_replace:
-            template: |
-              {% set user_list = $list_of_users.split(',') %}
-              ipsecconf:
-                left_networks: $leftNetworks
-                dhcp_pool_cidr: $dhcpPoolCidr
-                group_name: $groupName
-                private_key: $privateKey
-                user_list:
-                  {% for user in user_list %}
-                  name: {{ user }}
-                    password: {{ salt['random.get_str']('10') }}
-                  {% endfor %}
-            params:
-              $leftNetworks:
-                get_param: left-networks
-              $dhcpPoolCidr:
-                get_param: dhcp-pool-cidr
-              $groupName:
-                get_param: vpn-group-name
-              $privateKey:
-                get_attr:
-                  - private-shared-key
-                  - value
-              $list_of_users: 
-                get_param: vpn-users
-
 
       # Get access from the vpn-concentrator-port
       networks:
@@ -339,6 +368,7 @@ resources:
       signal_transport: NO_SIGNAL
     depends_on:
       - deploy-vpn-concentrator
+      - deploy-build-pillar
 
   # This resource 
   installing-strongswan-config:
@@ -369,6 +399,7 @@ resources:
         get_resource: vpn-concentrator
     depends_on:
       - deploy-install-strongswan
+      - deploy-build-pillar
 
 outputs:
   vpn-concentrator-ip:
@@ -397,6 +428,12 @@ outputs:
             get_resource: vpn-concentrator-port
           $dhcp-pool-cidr:
             get_param: dhcp-pool-cidr
+
+  result:
+    value:
+      get_attr:
+        - deploy-build-pillar
+        - result
 
   # Uncomment the stdout's and stderr's if problems are occuring.
   #vpn-concentrator-stdout:
