@@ -160,6 +160,7 @@ resources:
   vpn-concentrator-port:
     type: OS::Neutron::Port
     properties:
+      replacement_policy: AUTO
       network_id: 
         get_resource: transient-net
       security_groups:
@@ -214,7 +215,7 @@ resources:
         while read -r line
         do
             if [ -n "$line" ]; then
-                git clone -b feature-multiple-users $line
+                git clone -b feature-update-stack $line
             fi
         done <<< "$state_repos"
 
@@ -257,6 +258,19 @@ resources:
         prefix=${logdir}/config-build-pillar
         mkdir -p $logdir
         exec &> >(tee -a ${prefix}.log)
+
+        #Variables used for updates.
+        CURRENT_LEFT_NETWORKS=$(grep -E 'left_networks' /srv/pillar/rpc-salt-vpn/init.sls | awk '{print $2}')
+        if [ ! -z "${CURRENT_LEFT_NETWORKS-unset}" ]; then
+          left_networks="$CURRENT_LEFT_NETWORKS,$left_networks"
+        fi
+
+        CURRENT_LIST_OF_USERS=`cat /srv/pillar/rpc-salt-vpn/init.sls | awk '/users:/ {seen = 1} seen {print $1}' | grep -v 'users:' | tr ":" ","`
+        if [ ! -z "${CURRENT_LIST_OF_USERS-unset}" ]; then
+          list_of_users="$CURRENT_LIST_OF_USERS,$list_of_users"
+        fi
+
+        #Building out the pillar file
         cat << ENDFILE > /srv/pillar/rpc-salt-vpn/init.sls
         ipsecconf:
           left_networks: $left_networks
@@ -277,6 +291,9 @@ resources:
     type: OS::Heat::SoftwareDeployment
     depends_on: deploy-vpn-concentrator
     properties:
+      actions:
+        - CREATE
+        - UPDATE
       input_values:
         left_networks:
           get_param: left-networks
@@ -303,8 +320,6 @@ resources:
     type: OS::Nova::Server
     depends_on: transient-net-interface
     properties:
-      flavor_update_policy: RESIZE
-      image_update_policy: REBUILD_PRESERVE_EPHEMERAL
       key_name:
         get_param: keyname
       image: 
@@ -365,6 +380,9 @@ resources:
   deploy-install-strongswan:
     type: OS::Heat::SoftwareDeployment
     properties:
+    actions:
+      - CREATE
+      - UPDATE
       config:
         get_resource: config-install-strongswan
       server:
