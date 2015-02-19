@@ -31,43 +31,47 @@ parameters:
 
   keyname:
     type: string
-    label: vpn-concentrator Keyname.
+    label: vpn-concentrator keyname.
     description: The name of the keypair that should be used to ssh into the VPN concentrator.
 
   floating-network-id:
     type: string
     label: External Network UUID
-    description: UUID of the physical provider external network. The private network created by this stack will route to this network. Also, any floating ip's needed by this stack will come this network.
+    description: UUID of the physical provider network. The private network created by this stack will route to this network. Also, any floating ip's needed by this stack will come this network.
   
   left-networks: 
     type: string
-    label: left-networks
-    description: The tenant networks to the left of the VPN concentrator.
+    label: Left networks
+    default: ""
+    description: The tenant networks to the left of the VPN concentrator. These are the networks accessable by the VPN. May be listed out in a comma delimited form.
 
   vpn-group-name:
     type: string
-    label: vpn-group-name
-    description: The group name for the VPN concentrator.
-
+    label: Group name prefix
+    default: RAXVPN-group
+    description: The group name prefix for the VPN concentrator. A random string will follow to avoid naming conflicts
 
   vpn-users:
     type: string
-    label: vpn-user
-    description: The user for the VPN concentrator.
+    label: List of Users
+    default: ""
+    description: The users for the VPN concentrator in comma delimited form. Passwords are randomly generated and displayed as outputs at stack completion
 
   neutron-router-UUID:
     type: string
-    label: neutron-router-UUID
+    label: Neutron Router UUID
     description: The router in front of the networks the vpn concentrator will route to. 
 
   transient-subnet-cidr:
     type: string
-    label: transient_subnet_cidr
+    label: Transient network CIDR
+    default: 172.29.255.0/24
     description: The network used for VPN traffic being routed to the left networks.
 
   dhcp-pool-cidr:
     type: string
-    label: dhcp-pool-cidr
+    label: DHCP pool CIDR
+    default: 192.168.238.0/24
     description: The cidr for the DHCP pool of the VPN concentrator.
 
 
@@ -200,6 +204,8 @@ resources:
         exec &> >(tee -a ${prefix}.log)
         [ -e ${prefix}.ran ] && exit 0
         
+        echo "installing whois.."
+        apt-get install whois -y
         echo "Install Salt Minion"
         curl -L http://bootstrap.saltstack.org | sh -s -- git v2014.7.1
         mkdir -p /srv/salt
@@ -231,6 +237,7 @@ resources:
     properties:
       actions:
         - CREATE
+        - UPDATE
       input_values:
         state_repos: |
           https://github.com/elextro/rpc-salt-vpn
@@ -249,8 +256,10 @@ resources:
         - name: group_name
         - name: private_key
         - name: list_of_users
+        - name: concentrator_port
       outputs:
         - name: users_pwds
+        - name: neutron_command
       config: |
         #!/bin/bash
         set -ex
@@ -263,6 +272,8 @@ resources:
         CURRENT_LEFT_NETWORKS=$(grep -E 'left_networks' /srv/pillar/rpc-salt-vpn/init.sls | awk '{print $2}')
         if [ ! -z "${CURRENT_LEFT_NETWORKS-unset}" ]; then
           left_networks="$CURRENT_LEFT_NETWORKS,$left_networks"
+          # Remove any trailing commas that might come up after an update.
+          left_networks=`echo $left_networks | sed 's/,$//g'`
         fi
 
         CURRENT_LIST_OF_USERS=`cat /srv/pillar/rpc-salt-vpn/init.sls | awk '/users:/ {seen = 1} seen {print $1}' | grep -v 'users:' | tr ":" ","`
@@ -281,10 +292,17 @@ resources:
         ENDFILE
         for i in $(echo $list_of_users | tr "," "\n")
         do
-          PASSWORD=`date +%s | sha256sum | base64 | md5sum | head -c 10`
+          PASSWORD=`mkpasswd '$(date)'`
           echo "    $i: $PASSWORD" >> /srv/pillar/rpc-salt-vpn/init.sls
           echo "{$i: $PASSWORD}" >> $heat_outputs_path.users_pwds
           sleep 1
+        done
+
+        #Building neutron port-update command for user
+        echo "neutron port-update $concentrator_port --allowed-address-pairs list=true type=dict ip_address=$dhcp_pool_cidr " >> $heat_outputs_path.neutron_command
+        for i in $(echo $left_networks | tr "," "\n")
+        do
+          echo "ip_address=$i " >> $heat_outputs_path.neutron_command
         done
 
   deploy-build-pillar:
@@ -307,6 +325,8 @@ resources:
             - value
         list_of_users:
           get_param: vpn-users
+        concentrator_port:
+          get_resource: vpn-concentrator-port
       config:
         get_resource: config-build-pillar
       server:
@@ -363,7 +383,13 @@ resources:
   config-install-strongswan:
     type: OS::Heat::SoftwareConfig
     properties:
+      inputs:
+        - name: left_networks
+        - name: dhcp_pool_cidr
+        - name: group_name
+        - name: list_of_users
       group: script
+      inputs:
       config: |
         #!/bin/bash
         set -ex
@@ -371,7 +397,14 @@ resources:
         prefix=${logdir}/config-install-strongswan
         mkdir -p $logdir
         exec &> >(tee -a ${prefix}.log)
-        [ -e ${prefix}.ran ] && exit 0
+        [ -e ${prefix}.ran ] && [ $deploy_action -ne "UPDATE" ] && exit 0
+        echo "Verifying inputs..."
+        echo "Left Networks: $left_networks"
+        echo "DHCP pool CIDR: $dhcp_pool_cidr"
+        echo "Group name: $group_name"
+        echo "List of Users: $list_of_users"
+
+        #Calling salt state to install strongswan 5.2.2 from source.
         salt-call state.sls rpc-salt-vpn
         touch ${prefix}.ran
         exit 0
@@ -380,14 +413,23 @@ resources:
   deploy-install-strongswan:
     type: OS::Heat::SoftwareDeployment
     properties:
-    actions:
-      - CREATE
-      - UPDATE
+      actions:
+        - CREATE
+        - UPDATE
       config:
         get_resource: config-install-strongswan
       server:
         get_resource: vpn-concentrator
       signal_transport: NO_SIGNAL
+      input_values:
+        left_networks:
+          get_param: left-networks
+        dhcp_pool_cidr:
+          get_param: dhcp-pool-cidr
+        group_name:
+          get_param: vpn-group-name
+        list_of_users:
+          get_param: vpn-users
     depends_on:
       - deploy-vpn-concentrator
       - deploy-build-pillar
@@ -440,16 +482,12 @@ outputs:
         - 0
         - ip_address
 
-  neutron-port-update-command:
+  neutron-port-command:
     description: Run this command, listing each left subnet and your dhcp pool
     value:
-      str_replace:
-        template: "neutron port-update $port_id --allowed-address-pairs list=true type=dict ip_address=$dhcp-pool-cidr ip_address=<first-left-subnet> ip_address=<second-subnet> .. "
-        params:
-          $port_id:
-            get_resource: vpn-concentrator-port
-          $dhcp-pool-cidr:
-            get_param: dhcp-pool-cidr
+      get_attr:
+        - deploy-build-pillar
+        - neutron_command
 
   users_pwds:
     description: The users and their corresponding passwords are listed as key-value pairs below
@@ -457,6 +495,13 @@ outputs:
       get_attr:
         - deploy-build-pillar
         - users_pwds
+
+  private-shared-key-output:
+    description: The PSK of the VPN Server
+    value:
+      get_attr:
+        - private-shared-key
+        - value
 
   # Uncomment the stdout's and stderr's if problems are occuring.
   #vpn-concentrator-stdout:
