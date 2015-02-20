@@ -47,6 +47,7 @@ You can double check the /etc/ipsec.conf and /etc/ipsec.secrets file for an rend
 ## Quick Start Guide
 ### Creating a stack
 Creating a stack is simple. Just make sure the networks and router that will be utilizing the VPN are in place. Also, make sure you have access to the neutron API through the neutron client:
+
 1. First, clone this repository. 
 
 2. Access the openstack dashboard using your credentials.
@@ -65,6 +66,7 @@ Image to be inserted
 ### Updating a stack
 Updating a stack is an expiermental feature at the moment, so please be careful. Only adding a VPN user and a VPN left network have been tested.
 To update a stack: 
+
 1. Navigate to where your stacks are listed on the Openstack dashboard, click on the VPN stack you want to update. 
 
 2. Upload the SAME vpn-stack.yaml template used on creation. 
