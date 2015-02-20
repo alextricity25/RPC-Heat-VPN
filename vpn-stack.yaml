@@ -318,7 +318,15 @@ resources:
         dhcp_pool_cidr:
           get_param: dhcp-pool-cidr
         group_name:
-          get_param: vpn-group-name
+          str_replace:
+            template: $group_name-$stackstr
+            params:
+              $stackstr:
+                get_attr:
+                  - stack-string
+                  - value
+              $group_name:
+                get_param: vpn-group-name
         private_key:
           get_attr: 
             - private-shared-key
@@ -427,7 +435,15 @@ resources:
         dhcp_pool_cidr:
           get_param: dhcp-pool-cidr
         group_name:
-          get_param: vpn-group-name
+          str_replace:
+            template: $group_name-$stackstr
+            params:
+              $stackstr:
+                get_attr:
+                  - stack-string
+                  - value
+              $group_name:
+                get_param: vpn-group-name
         list_of_users:
           get_param: vpn-users
     depends_on:
@@ -473,17 +489,22 @@ outputs:
         - vpn-concentrator-ip
         - floating_ip_address
 
-  vpn-concentrator-inside-ip:
-    description: vpn-concentrator ips
+
+  full-group-name:
+    description: The group name as the VPN concentrator has configured it. 
     value:
-      get_attr:
-        - vpn-concentrator-port
-        - fixed_ips
-        - 0
-        - ip_address
+      str_replace:
+        template: $group_name-$stackstr
+        params:
+          $stackstr:
+            get_attr:
+              - stack-string
+              - value
+          $group_name:
+            get_param: vpn-group-name
 
   neutron-port-command:
-    description: Run this command, listing each left subnet and your dhcp pool
+    description: Copy and paste this command into your neutron client. This allows the concentrator to route traffic from remote client to local subnets. Must include DHCP pool and local subnets
     value:
       get_attr:
         - deploy-build-pillar
