@@ -17,16 +17,16 @@ The diagram below best illustrates the architecture of this solution. A transien
 ## Heat Parameters
 Heat parameters are user defined values that specify how the stack will be created and the VPN concentrator built. In this case, the following parameters are avialable to the user: 
 
-*Image - The image used for the VPN concentrator. The image must have heat software config elements built into it. This deployment has only been tested on Ubuntu 14.04. An image can be found at http://ab031d5abac8641e820c-98e3b8a8801f7f6b990cf4f6480303c9.r33.cf1.rackcdn.com/ubuntu-trusty-software-config.qcow2
-*External Network UUID - This is the neutron physical provider network. The floating IP for the VPN concentrator is grabbed from here. 
-*Keyname - The key used to ssh into the VPN concentrator
-*Neutron Router UUID - This is a router that should already be in place, with some tenant networks already attached. See image above. 
+* Image - The image used for the VPN concentrator. The image must have heat software config elements built into it. This deployment has only been tested on Ubuntu 14.04. An image can be found at http://ab031d5abac8641e820c-98e3b8a8801f7f6b990cf4f6480303c9.r33.cf1.rackcdn.com/ubuntu-trusty-software-config.qcow2
+* External Network UUID - This is the neutron physical provider network. The floating IP for the VPN concentrator is grabbed from here. 
+* Keyname - The key used to ssh into the VPN concentrator
+* Neutron Router UUID - This is a router that should already be in place, with some tenant networks already attached. See image above. 
 
-*VPN Group Name Prefix - This is the group name prefix used to connect to the VPN concentrator. It is appened with a random string to prevent duplicates. Default is RAXVPN-group.
-*Left Networks - The tenant networks available from the VPN. See diagram above.
+* VPN Group Name Prefix - This is the group name prefix used to connect to the VPN concentrator. It is appened with a random string to prevent duplicates. Default is RAXVPN-group.
+* Left Networks - The tenant networks available from the VPN. See diagram above.
 *VPN users - A comma delimited list of users on the VPN. Passwords are randomly generated and displayed as heat stack outputs. 
-*DHCP pool cidr - This is the DHCP pool cidr for the VPN concentrator. Defaults to 192.168.238.0/24
-*Transient Network - The network used by the VPN concentrator to route traffic to the tenant networks. Default is 172.29.255.0/24.
+* DHCP pool cidr - This is the DHCP pool cidr for the VPN concentrator. Defaults to 192.168.238.0/24
+* Transient Network - The network used by the VPN concentrator to route traffic to the tenant networks. Default is 172.29.255.0/24.
 
 ## Deployment - Under the Hood
 Under the hood, strongswan is deployed and configured using the SaltStack configuration management engine. The RPC-Heat-VPN heat stack template leverages software deployment and software config resources to pull down the necessary salt states from a list of repos defined in the heat template. Salt configs and salt files containing sensitive information are also built using software config scripts. The software config scripts build these sensitive files using the parameters described above. 
@@ -46,7 +46,7 @@ You can double check the /etc/ipsec.conf and /etc/ipsec.secrets file for an rend
 
 ## Quick Start Guide
 ### Creating a stack
-Creating a stack is simple. Just make sure the networks and router that will be utilizing the VPN are in place. Also, make sure you have access to the neutron API through the neutron client.
+Creating a stack is simple. Just make sure the networks and router that will be utilizing the VPN are in place. Also, make sure you have access to the neutron API through the neutron clien:
 1. First, clone this repository. 
 2. Access the openstack dashboard using your credentials. 
 3. Navigate to the Orchestraion->Stacks tab. 
