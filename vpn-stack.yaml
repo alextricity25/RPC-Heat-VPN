@@ -221,7 +221,7 @@ resources:
         while read -r line
         do
             if [ -n "$line" ]; then
-                git clone -b feature-update-stack $line
+                git clone $line
             fi
         done <<< "$state_repos"
 
