@@ -53,9 +53,9 @@ parameters:
 
   vpn-users:
     type: string
-    label: List of Users
+    label: Users
     default: ""
-    description: The users for the VPN concentrator in comma delimited form. Passwords are randomly generated and displayed as outputs at stack completion
+    description: The users for the VPN concentrator in comma delimited form. Passwords are randomly generated and displayed as outputs at stack completion. An existing user can be deleting by prefixing the list with delete:. The stack will then delete all following usernames from the VPN concentraor. You cannot delete and add a user on the same update.
 
   neutron-router-UUID:
     type: string
@@ -268,20 +268,71 @@ resources:
         mkdir -p $logdir
         exec &> >(tee -a ${prefix}.log)
 
-        #Variables used for updates.
+        ##Variables used for updates.
+        #If user list is prefixed with "[Dd]elete:", then delete users. 
+        if echo "$list_of_users" | grep -Eq "^[dD]elete:"; then
+          DELETE_USERS=True
+          USERS_TOBE_DELETED=$(echo $list_of_users | sed 's/^[dD]elete://g')
+        fi
+
+        #If left networks is prefixed with "[dD]elete:", then delete left_networks.
+        if echo "$left_networks" | grep -Eq "^[dD]elete:"; then
+          DELETE_NETWORKS=True
+          NETWORKS_TOBE_DELETED=$(echo $left_networks | sed 's/^[dD]elete://g')
+        fi
+
+        #On an update, this will grab the networks already in place in the salt pillar file.
         CURRENT_LEFT_NETWORKS=$(grep -E 'left_networks' /srv/pillar/rpc-salt-vpn/init.sls | awk '{print $2}')
+        #If there are networks in a pillar file already, append to them.
         if [ ! -z "${CURRENT_LEFT_NETWORKS-unset}" ]; then
-          left_networks="$CURRENT_LEFT_NETWORKS,$left_networks"
+          #Don't append to left_networks if delete was specified
+          if [ "$DELETE_NETWORKS" == "True" ]; then
+            left_networks="$CURRENT_LEFT_NETWORKS"
+          else
+            left_networks="$CURRENT_LEFT_NETWORKS,$left_networks"
+          fi
           # Remove any trailing commas that might come up after an update.
           left_networks=`echo $left_networks | sed 's/,$//g'`
         fi
 
-        CURRENT_LIST_OF_USERS=`cat /srv/pillar/rpc-salt-vpn/init.sls | awk '/users:/ {seen = 1} seen {print $1}' | grep -v 'users:' | tr ":" ","`
-        if [ ! -z "${CURRENT_LIST_OF_USERS-unset}" ]; then
-          list_of_users="$CURRENT_LIST_OF_USERS,$list_of_users"
+        #Deleting networks from string if the delete prefix was specified
+        if [ "$DELETE_NETWORKS" == "True" ] && [ $deploy_action == "UPDATE" ]; then
+          for network in $(echo $NETWORKS_TOBE_DELETED | tr "," "\n")
+          do
+            #Escape the network slash
+            network=$(echo $network | sed 's/\//\\\//g')
+            #Removing the network from the left_networks string
+            left_networks=`echo $left_networks | awk "{gsub(/$network,*/,\"\"); print}"`
+          done
+          #Removing any trailing commas that might appear on a delete
+          left_networks=`echo $left_networks | sed 's/,$//g'`
         fi
 
-        #Building out the pillar file
+        #On an update, this will grab the users already in place in the pillar file
+        CURRENT_LIST_OF_USERS=`cat /srv/pillar/rpc-salt-vpn/init.sls | awk '/users:/ {seen = 1} seen {print $1}' | grep -v 'users:' | tr ":" ","`
+        if [ ! -z "${CURRENT_LIST_OF_USERS-unset}" ]; then
+          #Don't append the users to the list_of_users string if the
+          if [ "$DELETE_USERS" == "True" ]; then
+            list_of_users=$CURRENT_LIST_OF_USERS
+          else
+            list_of_users="$CURRENT_LIST_OF_USERS,$list_of_users"
+          fi
+        fi
+
+        #Deleting users from string if the delete word was specified.
+        #Deletes should only be available on an UPDATE.
+        #Deletes and adds cannot be done on the same UPDATE
+        if [ "$DELETE_USERS" == "True" ] && [ "$deploy_action" == "UPDATE" ]; then
+          for user in $(echo $USERS_TOBE_DELETED | tr "," "\n")
+          do
+            #Remove the user from the list_of_users string
+            list_of_users=`echo $list_of_users | awk "{ gsub(/$user,*/, \"\"); print }"`
+          done
+          #Removing any trailing commas
+          list_of_users=`echo $list_of_users | sed 's/,$//g'`
+        fi
+
+        #Building out the pillar file. On updates, a completely new pillar file is built.
         cat << ENDFILE > /srv/pillar/rpc-salt-vpn/init.sls
         ipsecconf:
           left_networks: $left_networks
@@ -340,8 +391,6 @@ resources:
       server:
         get_resource: vpn-concentrator
 
-
-
   # The vpn-concentrator instance
   # Should have one floating ip
   vpn-concentrator:
@@ -395,7 +444,9 @@ resources:
         - name: left_networks
         - name: dhcp_pool_cidr
         - name: group_name
+        - name: private_key
         - name: list_of_users
+        - name: concentrator_port
       group: script
       inputs:
       config: |
@@ -405,7 +456,7 @@ resources:
         prefix=${logdir}/config-install-strongswan
         mkdir -p $logdir
         exec &> >(tee -a ${prefix}.log)
-        [ -e ${prefix}.ran ] && [ $deploy_action -ne "UPDATE" ] && exit 0
+        [ -e ${prefix}.ran ] && [ "$deploy_action" != "UPDATE" ] && exit 0
         echo "Verifying inputs..."
         echo "Left Networks: $left_networks"
         echo "DHCP pool CIDR: $dhcp_pool_cidr"
@@ -417,7 +468,7 @@ resources:
         touch ${prefix}.ran
         exit 0
 
-  # The software deployment for the above config
+  # The software deployment for the install strongswan config
   deploy-install-strongswan:
     type: OS::Heat::SoftwareDeployment
     properties:
@@ -444,13 +495,20 @@ resources:
                   - value
               $group_name:
                 get_param: vpn-group-name
+        private_key:
+          get_attr: 
+            - private-shared-key
+            - value
         list_of_users:
           get_param: vpn-users
+        concentrator_port:
+          get_resource: vpn-concentrator-port
     depends_on:
       - deploy-vpn-concentrator
       - deploy-build-pillar
 
-  # This resource 
+  # This resource is a dummy resource to wait for strongswan
+  # to be installed by source. 
   installing-strongswan-config:
     type: OS::Heat::SoftwareConfig
     properties:

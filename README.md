@@ -4,7 +4,7 @@ Heat template for deploying VPN concentrator with strongswan
 
 
 ## Description
-The Rackspace Private Cloud VPN Heat Solution, or RPC-Heat-VPN for short, is a Heat template designed to create and update a VPN concentrator using open sourced technology and the Salt configuration management engine.
+The Rackspace Private Cloud VPN Heat Solution, or RPC-Heat-VPN for short, is a Heat template designed to create and update a VPN concentrator using strongswan and the Salt configuration management engine.
 
 The creation has two phases. The first phase is handled by Heat, laying down the necessary OpenStack resources for a fully functional VPN environment. Through Heat Software Deployments and Software Configs, the second phase is initiated. The second phase involves running salt states witch install strongswan and lay down the necessary configurations. A more detailed description of the solution will be provided below.
 
@@ -32,7 +32,7 @@ Heat parameters are user defined values that specify how the stack will be creat
 Under the hood, strongswan is deployed and configured using the SaltStack configuration management engine. The RPC-Heat-VPN heat stack template leverages software deployment and software config resources to pull down the necessary salt states from a list of repos defined in the heat template. Salt configs and salt files containing sensitive information are also built using software config scripts. The software config scripts build these sensitive files using the parameters described above. 
 Because this solution utilizes software configuration management, additional functionality can be easily added by pulling in new salt states. Thus, true DevOps principles are achieved.
 
-###Logging
+###Logs
 All software config scripts are appropriately logged on the VPN concentrator in the /var/log/heat-deployments directory. The log files are named according to their corresponding heat resource. For example, the config-build-pillar software config resource will log to /var/log/heat-deployments/config-build-pillar.log, and so on.
 
 ### Troubleshooting
@@ -60,9 +60,10 @@ Creating a stack is simple. Just make sure the networks and router that will be 
 
 7. Enter your parameters. Hit Launch.
 
-8. When the stack is finished, copy-paste the neutron port-update command in the Outputs section of the stack. 
+8. When the stack is finished, copy the neutron port-update command in the Outputs section of the stack and run in on your neutron client with proper credentials. See image below for an example.
 
-Image to be inserted
+![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/Neutron_port_command.png)
+
 ### Updating a stack
 Updating a stack is an expiermental feature at the moment, so please be careful. Only adding a VPN user and a VPN left network have been tested.
 To update a stack: 
@@ -71,10 +72,24 @@ To update a stack:
 
 2. Upload the SAME vpn-stack.yaml template used on creation. 
 
-3. Enter the SAME parameters as when you created the stack, with the exception of Left Networks and/or Vpn Users. 
+3. Enter the SAME parameters as when you created the stack, with the exception of Left Networks and/or VPN Users.
 
 4. To add a Left Network or VPN user, simply list them in comma delimited form in their appropriate parameter fields. 
 
 5. Hit "Update". 
 
 WARNING: Be careful with adding users and/or left networks. Adding duplicates will currently break your VPN. 
+
+####Deleting a user
+Deleting a user is very simple. Just keep in mind that deletions and additions cannot be done within the same update. Those actions must be done within their own stack update. 
+To delete a user: 
+
+1. Perform the same actions as discribed above for updating a stack. 
+
+2. In the 'Users' field, prefix the list of users you want to delete with 'delete:'. For example: 
+
+* delete: someuser
+
+* delete: someuser,anotheruser,...
+
+3. Click on "Update". 
