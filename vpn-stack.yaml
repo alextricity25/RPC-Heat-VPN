@@ -221,7 +221,7 @@ resources:
         while read -r line
         do
             if [ -n "$line" ]; then
-                git clone $line
+                git clone -b feature_python $line
             fi
         done <<< "$state_repos"
 
@@ -268,86 +268,7 @@ resources:
         mkdir -p $logdir
         exec &> >(tee -a ${prefix}.log)
 
-        ##Variables used for updates.
-        #If user list is prefixed with "[Dd]elete:", then delete users. 
-        if echo "$list_of_users" | grep -Eq "^[dD]elete:"; then
-          DELETE_USERS=True
-          USERS_TOBE_DELETED=$(echo $list_of_users | sed 's/^[dD]elete://g')
-        fi
-
-        #If left networks is prefixed with "[dD]elete:", then delete left_networks.
-        if echo "$left_networks" | grep -Eq "^[dD]elete:"; then
-          DELETE_NETWORKS=True
-          NETWORKS_TOBE_DELETED=$(echo $left_networks | sed 's/^[dD]elete://g')
-        fi
-
-        #On an update, this will grab the networks already in place in the salt pillar file.
-        CURRENT_LEFT_NETWORKS=$(grep -E 'left_networks' /srv/pillar/rpc-salt-vpn/init.sls | awk '{print $2}')
-        #If there are networks in a pillar file already, append to them.
-        if [ ! -z "${CURRENT_LEFT_NETWORKS-unset}" ]; then
-          #Don't append to left_networks if delete was specified
-          if [ "$DELETE_NETWORKS" == "True" ]; then
-            left_networks="$CURRENT_LEFT_NETWORKS"
-          else
-            left_networks="$CURRENT_LEFT_NETWORKS,$left_networks"
-          fi
-          # Remove any trailing commas that might come up after an update.
-          left_networks=`echo $left_networks | sed 's/,$//g'`
-        fi
-
-        #Deleting networks from string if the delete prefix was specified
-        if [ "$DELETE_NETWORKS" == "True" ] && [ $deploy_action == "UPDATE" ]; then
-          for network in $(echo $NETWORKS_TOBE_DELETED | tr "," "\n")
-          do
-            #Escape the network slash
-            network=$(echo $network | sed 's/\//\\\//g')
-            #Removing the network from the left_networks string
-            left_networks=`echo $left_networks | awk "{gsub(/$network,*/,\"\"); print}"`
-          done
-          #Removing any trailing commas that might appear on a delete
-          left_networks=`echo $left_networks | sed 's/,$//g'`
-        fi
-
-        #On an update, this will grab the users already in place in the pillar file
-        CURRENT_LIST_OF_USERS=`cat /srv/pillar/rpc-salt-vpn/init.sls | awk '/users:/ {seen = 1} seen {print $1}' | grep -v 'users:' | tr ":" ","`
-        if [ ! -z "${CURRENT_LIST_OF_USERS-unset}" ]; then
-          #Don't append the users to the list_of_users string if the
-          if [ "$DELETE_USERS" == "True" ]; then
-            list_of_users=$CURRENT_LIST_OF_USERS
-          else
-            list_of_users="$CURRENT_LIST_OF_USERS,$list_of_users"
-          fi
-        fi
-
-        #Deleting users from string if the delete word was specified.
-        #Deletes should only be available on an UPDATE.
-        #Deletes and adds cannot be done on the same UPDATE
-        if [ "$DELETE_USERS" == "True" ] && [ "$deploy_action" == "UPDATE" ]; then
-          for user in $(echo $USERS_TOBE_DELETED | tr "," "\n")
-          do
-            #Remove the user from the list_of_users string
-            list_of_users=`echo $list_of_users | awk "{ gsub(/$user,*/, \"\"); print }"`
-          done
-          #Removing any trailing commas
-          list_of_users=`echo $list_of_users | sed 's/,$//g'`
-        fi
-
-        #Building out the pillar file. On updates, a completely new pillar file is built.
-        cat << ENDFILE > /srv/pillar/rpc-salt-vpn/init.sls
-        ipsecconf:
-          left_networks: $left_networks
-          dhcp_pool_cidr: $dhcp_pool_cidr
-          group_name: $group_name
-          private_key: $private_key
-          users:
-        ENDFILE
-        for i in $(echo $list_of_users | tr "," "\n")
-        do
-          PASSWORD=`mkpasswd '$(date)'`
-          echo "    $i: $PASSWORD" >> /srv/pillar/rpc-salt-vpn/init.sls
-          echo "{$i: $PASSWORD}" >> $heat_outputs_path.users_pwds
-          sleep 1
-        done
+        python /srv/salt/rpc-salt-vpn/scripts/build_pillar.py "$left_networks" "$dhcp_pool_cidr" "$group_name" "$private_key" "$list_of_users" "$concentrator_port" "$deploy_action" "$heat_outputs_path.users_pwds" "$heat_outputs_path.neutron_command" "/srv/pillar/rpc-salt-vpn/init.sls"
 
         #Building neutron port-update command for user
         echo "neutron port-update $concentrator_port --allowed-address-pairs list=true type=dict ip_address=$dhcp_pool_cidr " >> $heat_outputs_path.neutron_command
