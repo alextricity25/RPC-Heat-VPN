@@ -271,13 +271,6 @@ resources:
         #Building the pillar file
         python /srv/salt/rpc-salt-vpn/scripts/build_pillar.py "$left_networks" "$dhcp_pool_cidr" "$group_name" "$private_key" "$list_of_users" "$concentrator_port" "$deploy_action" "$heat_outputs_path.users_pwds" "$heat_outputs_path.neutron_command" "/srv/pillar/rpc-salt-vpn/init.sls"
 
-        #Building neutron port-update command for user
-        echo "neutron port-update $concentrator_port --allowed-address-pairs list=true type=dict ip_address=$dhcp_pool_cidr " >> $heat_outputs_path.neutron_command
-        for i in $(echo $left_networks | tr "," "\n")
-        do
-          echo "ip_address=$i " >> $heat_outputs_path.neutron_command
-        done
-
   deploy-build-pillar:
     type: OS::Heat::SoftwareDeployment
     depends_on: deploy-vpn-concentrator
