@@ -10,7 +10,16 @@ The creation has two phases. The first phase is handled by Heat, laying down the
 
 ## Quick Start Guide
 ### Creating a stack
-Creating a stack is simple. Just make sure the networks and router that will be utilizing the VPN are in place. Also, make sure you have access to the neutron API through the neutron client:
+
+The prerequisites are:
+
+* A neutron physical provider network to pull floating IPs from.
+
+* An image with heat tools baked into them. An image can be found here: http://ab031d5abac8641e820c-98e3b8a8801f7f6b990cf4f6480303c9.r33.cf1.rackcdn.com/ubuntu-trusty-software-config.qcow2
+
+* A neutron router already in place. This is the router connected to the tenant networks you would like to access through your VPN (See Architecture section below).
+
+To create a stack:
 
 * First, clone this repository. 
 
