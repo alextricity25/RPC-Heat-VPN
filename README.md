@@ -65,31 +65,57 @@ Creating a stack is simple. Just make sure the networks and router that will be 
 ![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/Neutron_port_command.png)
 
 ### Updating a stack
-Updating a stack is an expiermental feature at the moment, so please be careful. Only adding a VPN user and a VPN left network have been tested.
-To update a stack: 
+Updating a stack is the the best part of this solution! Imagine if the user wanted to add a user or a network. How can they do so without having dive into strongswan configurations? Stack updates are the answer! Using stack updates, the cloud administrator can add/delete a VPN user and network, update a password, and clear the sensitive information from the heat output section on the dashboard. There is no need for the admin to log into the concentrator and dig through strongswan configurations! Detailed instructions on how to do these things are provided below. 
 
-1. Navigate to where your stacks are listed on the Openstack dashboard, click on the VPN stack you want to update. 
+####Adding a user/network
+
+1. Navigate to where your stacks are listed on the Openstack dashboard, find the VPN stack you want to update, then select the "update stack" option.
+
+![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/updating_stack.png)
 
 2. Upload the SAME vpn-stack.yaml template used on creation. 
 
-3. Enter the SAME parameters as when you created the stack, with the exception of Left Networks and/or VPN Users.
+3. Enter the parameters that are listed. For the paramters you want to keep the same, simply enter the same value as before. However, keep in mind that updating the openstack resources hasn't been tested. Stick to only chaning the Left Networks or Users field.
 
-4. To add a Left Network or VPN user, simply list them in comma delimited form in their appropriate parameter fields. 
+4. To add a Left Network or VPN user, simply list them in comma delimited form in their appropriate parameter fields. For example, to add the network 10.10.10.0/24 and the user "testuser":
+
+![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/Adding_entries.png)
+
+If only a user needs to be added, leave the Left Networks field blank as it's an optional field. 
 
 5. Hit "Update". 
 
-WARNING: Be careful with adding users and/or left networks. Adding duplicates will currently break your VPN. 
+6. Make sure to re-run the neutron port-update command that will appear in the heat outputs section if new networks were added.
+
+The newly created users, along with their passwords, will appear in the outputs section. For example:
+
+![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/heat_output.png)
 
 ####Deleting a user
-Deleting a user is very simple. Just keep in mind that deletions and additions cannot be done within the same update. Those actions must be done within their own stack update. 
-To delete a user: 
+Deleting a user is very simple! 
+NOTE: Deleting a user will clear sensitive information from the heat outputs, such as usernames and passwords. 
+To delete a user or a network: 
 
 1. Perform the same actions as discribed above for updating a stack. 
 
-2. In the 'Users' field, prefix the list of users you want to delete with 'delete:'. For example: 
+2. In the 'Users' field, prefix the list of users or networks you want to delete with 'delete:'. For example: 
 
-* delete: someuser
-
-* delete: someuser,anotheruser,...
+![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/delete.png)
 
 3. Click on "Update". 
+
+
+####Updating a users password
+To update a users password, prefix the list of users that need the update with 'updatepw:' in the Users parameter field. For example:
+
+![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/update_passwords.png)
+
+The user will recieve a new randomly generated password, and will be displayed in the heat output section. 
+
+
+####Clearing the sensitive information
+To clear the sensitive information from the heat outputs, type 'clear passwords' in the Users parameter field on a stack update:
+
+![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/clear_passwords.png)
+
+The sensitive information will then be removed from the heat outputs on the dashboard.
