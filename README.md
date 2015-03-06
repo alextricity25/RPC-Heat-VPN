@@ -6,43 +6,7 @@ Heat template for deploying VPN concentrator with strongswan
 ## Description
 The Rackspace Private Cloud VPN Heat Solution, or RPC-Heat-VPN for short, is a Heat template designed to create and update a VPN concentrator using strongswan and the Salt configuration management engine.
 
-The creation has two phases. The first phase is handled by Heat, laying down the necessary OpenStack resources for a fully functional VPN environment. Through Heat Software Deployments and Software Configs, the second phase is initiated. The second phase involves running salt states witch install strongswan and lay down the necessary configurations. A more detailed description of the solution will be provided below.
-
-## Architecture
-The diagram below best illustrates the architecture of this solution. A transient network is used so the VPN concentrator can route traffic to the tenant networks. VPN traffic is routed to the VPN concentrator through the neutron router by adding a static route. Indeed, multiple tenant networks are supported! Arbitrary tenant networks can be specified through heat parameters. Heat parameters are explained in the section below.
-
-![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/VPN%20architecture%20diagram.png)
-
-
-## Heat Parameters
-Heat parameters are user defined values that specify how the stack will be created and the VPN concentrator built. In this case, the following parameters are avialable to the user: 
-
-* Image - The image used for the VPN concentrator. The image must have heat software config elements built into it. This deployment has only been tested on Ubuntu 14.04. An image can be found at http://ab031d5abac8641e820c-98e3b8a8801f7f6b990cf4f6480303c9.r33.cf1.rackcdn.com/ubuntu-trusty-software-config.qcow2
-* External Network UUID - This is the neutron physical provider network. The floating IP for the VPN concentrator is grabbed from here. 
-* Keyname - The key used to ssh into the VPN concentrator
-* Neutron Router UUID - This is a router that should already be in place, with some tenant networks already attached. See image above. 
-
-* VPN Group Name Prefix - This is the group name prefix used to connect to the VPN concentrator. It is appened with a random string to prevent duplicates. Default is RAXVPN-group.
-* Left Networks - The tenant networks available from the VPN. See diagram above.
-*VPN users - A comma delimited list of users on the VPN. Passwords are randomly generated and displayed as heat stack outputs. 
-* DHCP pool cidr - This is the DHCP pool cidr for the VPN concentrator. Defaults to 192.168.238.0/24
-* Transient Network - The network used by the VPN concentrator to route traffic to the tenant networks. Default is 172.29.255.0/24.
-
-## Deployment - Under the Hood
-Under the hood, strongswan is deployed and configured using the SaltStack configuration management engine. The RPC-Heat-VPN heat stack template leverages software deployment and software config resources to pull down the necessary salt states from a list of repos defined in the heat template. Salt configs and salt files containing sensitive information are also built using software config scripts. The software config scripts build these sensitive files using the parameters described above. 
-Because this solution utilizes software configuration management, additional functionality can be easily added by pulling in new salt states. Thus, true DevOps principles are achieved.
-
-###Logs
-All software config scripts are appropriately logged on the VPN concentrator in the /var/log/heat-deployments directory. The log files are named according to their corresponding heat resource. For example, the config-build-pillar software config resource will log to /var/log/heat-deployments/config-build-pillar.log, and so on.
-
-### Troubleshooting
-Remote access to the VPN concentrator can be done by using the key given during stack creation. For example:
-
-```shell
-ssh -i <key> ec2-user@<floating-ip-of-concentrator>
-```
-
-You can double check the /etc/ipsec.conf and /etc/ipsec.secrets file for an rendoring errors. Also, you can checkout the ipsec logs by grepping for 'charon' in the syslog file. 
+The creation has two phases. The first phase is handled by Heat, laying down the necessary OpenStack resources for a fully functional VPN environment. Through Heat Software Deployments and Software Configs, the second phase is initiated. The second phase involves running salt states and python scripts witch install strongswan and lay down the necessary configurations. A more detailed description of the solution will be provided below.
 
 ## Quick Start Guide
 ### Creating a stack
@@ -119,3 +83,44 @@ To clear the sensitive information from the heat outputs, type 'clear passwords'
 ![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/clear_passwords.png)
 
 The sensitive information will then be removed from the heat outputs on the dashboard.
+
+## Heat Parameters
+Heat parameters are user defined values that specify how the stack will be created and the VPN concentrator built. In this case, the following parameters are avialable to the user: 
+
+* Image - The image used for the VPN concentrator. The image must have heat software config elements built into it. This deployment has only been tested on Ubuntu 14.04. An image can be found at http://ab031d5abac8641e820c-98e3b8a8801f7f6b990cf4f6480303c9.r33.cf1.rackcdn.com/ubuntu-trusty-software-config.qcow2
+* External Network UUID - This is the neutron physical provider network. The floating IP for the VPN concentrator is grabbed from here. 
+* Keyname - The key used to ssh into the VPN concentrator
+* Neutron Router UUID - This is a router that should already be in place, with some tenant networks already attached. See image above. 
+
+* VPN Group Name Prefix - This is the group name prefix used to connect to the VPN concentrator. It is appened with a random string to prevent duplicates. Default is RAXVPN-group.
+* Left Networks - The tenant networks available from the VPN. See diagram above.
+*VPN users - A comma delimited list of users on the VPN. Passwords are randomly generated and displayed as heat stack outputs. 
+* DHCP pool cidr - This is the DHCP pool cidr for the VPN concentrator. Defaults to 192.168.238.0/24
+* Transient Network - The network used by the VPN concentrator to route traffic to the tenant networks. Default is 172.29.255.0/24.
+
+## Architecture
+The diagram below best illustrates the architecture of this solution. A transient network is used so the VPN concentrator can route traffic to the tenant networks. VPN traffic is routed to the VPN concentrator through the neutron router by adding a static route. Indeed, multiple tenant networks are supported! Arbitrary tenant networks can be specified through heat parameters. Heat parameters are explained in the section below.
+
+![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/VPN%20architecture%20diagram.png)
+
+
+## Deployment - Under the Hood
+Under the hood, strongswan is deployed and configured using the SaltStack configuration management engine. The RPC-Heat-VPN heat stack template leverages software deployment and software config resources to pull down the necessary salt states from a list of repos defined in the heat template. Salt files containing sensitive information (pillars) are built by a python script called by the "config-build-pillar" software config resource. Data from heat is passed to the script via arguments. 
+
+Each time a stack is updated, the python script re-runs, re-building the salt pillar files with the newly added/deleted data. Salt then uses that information to configure strongswan accordingly. 
+
+Because this solution utilizes software configuration management, additional functionality can be easily added by pulling in new salt states. Thus, true DevOps principles are achieved.
+
+###Logs
+All software config scripts are appropriately logged on the VPN concentrator in the /var/log/heat-deployments directory. The log files are named according to their corresponding heat resource. For example, the config-build-pillar software config resource will log to /var/log/heat-deployments/config-build-pillar.log, and so on.
+
+### Troubleshooting
+Remote access to the VPN concentrator can be done by using the key given during stack creation. For example:
+
+```shell
+ssh -i <key> ec2-user@<floating-ip-of-concentrator>
+```
+
+You can double check the /etc/ipsec.conf and /etc/ipsec.secrets file for an rendoring errors. Also, you can checkout the ipsec logs by grepping for 'charon' in the syslog file. 
+
+
