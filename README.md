@@ -12,19 +12,19 @@ The creation has two phases. The first phase is handled by Heat, laying down the
 ### Creating a stack
 Creating a stack is simple. Just make sure the networks and router that will be utilizing the VPN are in place. Also, make sure you have access to the neutron API through the neutron client:
 
-1. First, clone this repository. 
+* First, clone this repository. 
 
-2. Access the openstack dashboard using your credentials.
+* Access the openstack dashboard using your credentials.
 
-3. Navigate to the Orchestraion->Stacks tab.
+* Navigate to the Orchestraion->Stacks tab.
 
-5. Click on Launch Stack
+* Click on Launch Stack
 
-6. Make sure Template Source is from File, then upload the vpn-stack.yaml file.
+* Make sure Template Source is from File, then upload the vpn-stack.yaml file.
 
-7. Enter your parameters. Hit Launch.
+* Enter your parameters. Hit Launch.
 
-8. When the stack is finished, copy the neutron port-update command in the Outputs section of the stack and run in on your neutron client with proper credentials. See image below for an example.
+* When the stack is finished, copy the neutron port-update command in the Outputs section of the stack and run in on your neutron client with proper credentials. See image below for an example.
 
 ![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/Neutron_port_command.png)
 
