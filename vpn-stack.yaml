@@ -55,7 +55,7 @@ parameters:
     type: string
     label: Users
     default: ""
-    description: The users for the VPN concentrator in comma delimited form. Passwords are randomly generated and displayed as outputs at stack completion. An existing user can be deleting by prefixing the list with delete:. The stack will then delete all following usernames from the VPN concentraor. You cannot delete and add a user on the same update.
+    description: Comma delimited list of users. Other options are listed in documentation. Please see documentation. 
 
   neutron-router-UUID:
     type: string
@@ -257,9 +257,11 @@ resources:
         - name: private_key
         - name: list_of_users
         - name: concentrator_port
+        - name: router_UUID
       outputs:
         - name: users_pwds
         - name: neutron_command
+        - name: group_name
       config: |
         #!/bin/bash
         set -ex
@@ -268,8 +270,9 @@ resources:
         mkdir -p $logdir
         exec &> >(tee -a ${prefix}.log)
 
-        #Building the pillar file
-        python /srv/salt/rpc-salt-vpn/scripts/build_pillar.py "$left_networks" "$dhcp_pool_cidr" "$group_name" "$private_key" "$list_of_users" "$concentrator_port" "$deploy_action" "$heat_outputs_path.users_pwds" "$heat_outputs_path.neutron_command" "/srv/pillar/rpc-salt-vpn/init.sls"
+        #Building the pillar file. This script lives in the
+        #rpc-salt-vpn repo.
+        python /srv/salt/rpc-salt-vpn/scripts/build_pillar.py "$left_networks" "$dhcp_pool_cidr" "$group_name" "$private_key" "$list_of_users" "$concentrator_port" "$deploy_action" "$heat_outputs_path.users_pwds" "$heat_outputs_path.neutron_command" "/srv/pillar/rpc-salt-vpn/init.sls" "$router_UUID" "$heat_outputs_path.group_name"
 
   deploy-build-pillar:
     type: OS::Heat::SoftwareDeployment
@@ -284,15 +287,7 @@ resources:
         dhcp_pool_cidr:
           get_param: dhcp-pool-cidr
         group_name:
-          str_replace:
-            template: $group_name-$stackstr
-            params:
-              $stackstr:
-                get_attr:
-                  - stack-string
-                  - value
-              $group_name:
-                get_param: vpn-group-name
+          get_param: vpn-group-name
         private_key:
           get_attr: 
             - private-shared-key
@@ -301,6 +296,8 @@ resources:
           get_param: vpn-users
         concentrator_port:
           get_resource: vpn-concentrator-port
+        router_UUID:
+          get_param: neutron-router-UUID
       config:
         get_resource: config-build-pillar
       server:
@@ -463,18 +460,12 @@ outputs:
         - floating_ip_address
 
 
-  full-group-name:
+  group_name:
     description: The group name as the VPN concentrator has configured it. 
     value:
-      str_replace:
-        template: $group_name-$stackstr
-        params:
-          $stackstr:
-            get_attr:
-              - stack-string
-              - value
-          $group_name:
-            get_param: vpn-group-name
+      get_attr:
+        - deploy-build-pillar
+        - group_name
 
   neutron-port-command:
     description: Copy and paste this command into your neutron client. This allows the concentrator to route traffic from remote client to local subnets. Must include DHCP pool and local subnets
