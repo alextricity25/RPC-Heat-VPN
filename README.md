@@ -28,18 +28,20 @@ Creating a stack is simple. Just make sure the networks and router that will be 
 
 ![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/Neutron_port_command.png)
 
+9. Record the usernames and passwords from the heat outputs in a secure location. They will be cleared on the next stack update. Alternatively, they can be cleared by passing the Users parameter field "clear passwords". See below section on clearing sensitive information.
+
 ### Updating a stack
-Updating a stack is the the best part of this solution! Imagine if the user wanted to add a user or a network. How can they do so without having dive into strongswan configurations? Stack updates are the answer! Using stack updates, the cloud administrator can add/delete a VPN user and network, update a password, and clear the sensitive information from the heat output section on the dashboard. There is no need for the admin to log into the concentrator and dig through strongswan configurations! Detailed instructions on how to do these things are provided below. 
+Updating a stack is the the best part of this solution! Imagine if the user wanted to add a VPN user or a network for split tunneling. How can they do so without having dive into strongswan configurations? Stack updates are the answer! Using stack updates, the cloud administrator can add/delete a VPN user and network, update a password, and clear the sensitive information from the heat output section on the dashboard. There is no need for the admin to log into the VPN concentrator and dig through strongswan configurations! Detailed instructions on how to do these things are provided below. 
 
 ####Adding a user/network
 
-1. Navigate to where your stacks are listed on the Openstack dashboard, find the VPN stack you want to update, then select the "update stack" option.
+1. Navigate to where your stacks are listed on the Openstack dashboard, find the VPN stack you want to update, then select the "Change Stack Template" option.
 
 ![](http://718016a9d23737f3d804-7671e86526a10735410d8ae5040e7d55.r41.cf1.rackcdn.com/updating_stack.png)
 
 2. Upload the SAME vpn-stack.yaml template used on creation. 
 
-3. Enter the parameters that are listed. For the paramters you want to keep the same, simply enter the same value as before. However, keep in mind that updating the openstack resources hasn't been tested. Stick to only chaning the Left Networks or Users field.
+3. Enter the parameters that are listed. For the paramters you want to keep the same, simply enter the same value as before. However, keep in mind that updating the openstack resources hasn't been tested. Stick to only changing the Left Networks or Users field.
 
 4. To add a Left Network or VPN user, simply list them in comma delimited form in their appropriate parameter fields. For example, to add the network 10.10.10.0/24 and the user "testuser":
 
@@ -68,6 +70,7 @@ To delete a user or a network:
 
 3. Click on "Update". 
 
+Deleting users or networks can also be done in bulk by entering them as a comma delimited list. 
 
 ####Updating a users password
 To update a users password, prefix the list of users that need the update with 'updatepw:' in the Users parameter field. For example:
